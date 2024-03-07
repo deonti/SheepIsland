@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -10,38 +9,29 @@ public class PopulationController : MonoBehaviour
   [SerializeField] private Sheep _sheepPrototype;
   [SerializeField] private Grass _grassPrototype;
 
-  private readonly List<Sheep> _sheepList = new();
-  private readonly List<Grass> _grassList = new();
   private GroundInfo _ground;
 
-  private void Awake()
-  {
+  private void Awake() => 
     _ground = _ground ? _ground : FindObjectOfType<GroundInfo>();
-  }
 
-  private void Start()
-  {
+  private void Start() => 
     CountsChanged();
-  }
 
   public void CountsChanged()
   {
-    _sheepList.ForEach(sheep => sheep.Release());
-    _sheepList.Clear();
+    Sheep[] sheepes = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
+    for (int i = sheepes.Length - 1; i > _sheepCount.value - 1; i--)
+      sheepes[i].Release();
 
-    _grassList.ForEach(grass => grass.Release());
-    _grassList.Clear();
+    for (int i = sheepes.Length; i < _sheepCount.value; i++)
+      Instantiate(_sheepPrototype);
 
-    foreach (Sheep sheep in FindObjectsByType<Sheep>(FindObjectsSortMode.None))
-      sheep.Release();
+    Grass[] grasses = FindObjectsByType<Grass>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+      .Where(grass => grass.IsPrototype).ToArray();
+    for (int i = grasses.Length - 1; i > _grassCount.value - 1; i--)
+      grasses[i].Release();
 
-    foreach (Grass grass in FindObjectsByType<Grass>(FindObjectsSortMode.None))
-      grass.Release();
-
-    for (int i = 0; i < _grassCount.value; i++)
-      _grassList.Add(_grassPrototype.SpawnOnFreeSpace());
-
-    for (int i = 0; i < _sheepCount.value; i++)
-      _sheepList.Add(Instantiate(_sheepPrototype));
+    for (int i = grasses.Length; i < _grassCount.value; i++)
+      Instantiate(_grassPrototype);
   }
 }

@@ -9,33 +9,44 @@ public class Grass : MonoBehaviour
 
   private GroundInfo _ground;
   private Grass _prototype;
+  private readonly List<Grass> _instances = new();
 
-  private bool IsPrototype => !_prototype;
+  public bool IsPrototype => !_prototype;
 
-  private void Start()
+  private void OnEnable()
   {
     if (IsPrototype)
-      InitPrototype();
+      InitAsPrototype();
   }
 
-  private void InitPrototype()
+  private void InitAsPrototype()
   {
     gameObject.hideFlags = HideFlags.HideInHierarchy;
     gameObject.SetActive(false);
-    Spawn(this, FindObjectOfType<GroundInfo>());
+    var ground = FindObjectOfType<GroundInfo>();
+    if (!TrySpawnOnFreeCell(this, ground)) 
+      Spawn(this, ground);
   }
 
   private void OnDestroy()
   {
-    if (_ground)
-      _ground.StartCoroutine(DelayedRespawn(_ground, _prototype, _respawnDelay));
+    if (IsPrototype)
+      foreach (Grass instance in _instances)
+        Destroy(instance.gameObject);
+    else
+    {
+      _prototype._instances.Remove(this);
+      if (_ground)
+        _ground.StartCoroutine(DelayedRespawn(_ground, _prototype, _respawnDelay));
+    }
   }
 
   private static Grass Spawn(Grass prototype, GroundInfo ground)
   {
     Grass grass = Instantiate(prototype);
-    grass.name = prototype.name;
+    prototype._instances.Add(grass);
     grass._prototype = prototype;
+    grass.name = prototype.name;
     grass._ground = ground;
     grass.gameObject.SetActive(true);
     return grass;
@@ -48,14 +59,22 @@ public class Grass : MonoBehaviour
 
   private static IEnumerator DelayedRespawn(GroundInfo ground, Grass prototype, float delay)
   {
-    yield return new WaitForSeconds(delay);
-    Respawn(prototype, ground);
+    while (true)
+    {
+      yield return new WaitForSeconds(delay);
+      if (!prototype)
+        yield break;
+      if (TrySpawnOnFreeCell(prototype, ground))
+        yield break;
+    }
   }
 
-  private static void Respawn(Grass prototype, GroundInfo ground)
+  private static bool TrySpawnOnFreeCell(Grass prototype, GroundInfo ground)
   {
-    if (prototype && TryGetFreeCellPosition(ground, out Vector3 position))
-      Spawn(prototype, ground).transform.position = position;
+    if (!TryGetFreeCellPosition(ground, out Vector3 position)) return false;
+    
+    Spawn(prototype, ground).transform.position = position;
+    return true;
   }
 
   private static readonly Random _random = new();
@@ -95,9 +114,6 @@ public class Grass : MonoBehaviour
     return false;
   }
 
-  public void Release()
-  {
-    _ground = null;
+  public void Release() =>
     Destroy(gameObject);
-  }
 }
