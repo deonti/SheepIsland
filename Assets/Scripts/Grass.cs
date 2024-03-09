@@ -1,13 +1,13 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using Extensions;
 using UnityEngine;
-using Random = System.Random;
 
 public class Grass : MonoBehaviour
 {
   [SerializeField] private float _respawnDelay = 2f;
 
-  private GroundInfo _ground;
+  private Ground _ground;
   private Grass _prototype;
   private readonly List<Grass> _instances = new();
 
@@ -23,9 +23,7 @@ public class Grass : MonoBehaviour
   {
     gameObject.hideFlags = HideFlags.HideInHierarchy;
     gameObject.SetActive(false);
-    var ground = FindObjectOfType<GroundInfo>();
-    if (!TrySpawnOnFreeCell(this, ground)) 
-      Spawn(this, ground);
+    Spawn(this, FindObjectOfType<Ground>());
   }
 
   private void OnDestroy()
@@ -41,7 +39,7 @@ public class Grass : MonoBehaviour
     }
   }
 
-  private static Grass Spawn(Grass prototype, GroundInfo ground)
+  private static Grass Spawn(Grass prototype, Ground ground)
   {
     Grass grass = Instantiate(prototype);
     prototype._instances.Add(grass);
@@ -52,12 +50,7 @@ public class Grass : MonoBehaviour
     return grass;
   }
 
-  public Grass SpawnOnFreeSpace()
-  {
-    return Instantiate(this);
-  }
-
-  private static IEnumerator DelayedRespawn(GroundInfo ground, Grass prototype, float delay)
+  private static IEnumerator DelayedRespawn(Ground ground, Grass prototype, float delay)
   {
     while (true)
     {
@@ -69,51 +62,31 @@ public class Grass : MonoBehaviour
     }
   }
 
-  private static bool TrySpawnOnFreeCell(Grass prototype, GroundInfo ground)
+  private static bool TrySpawnOnFreeCell(Grass prototype, Ground ground)
   {
-    if (!TryGetFreeCellPosition(ground, out Vector3 position)) return false;
-    
-    Spawn(prototype, ground).transform.position = position;
-    return true;
-  }
+    Ground.Cell freeCell = ground.GetCells(CellCanSpawnGrass).Random();
+    if (!freeCell.IsValid) return false;
 
-  private static readonly Random _random = new();
-
-  private static bool TryGetFreeCellPosition(GroundInfo ground, out Vector3 cellPosition)
-  {
-    List<Vector3Int> cells = new();
-    foreach (Vector3Int cell in ground.AllCells)
-      if (IsFreeCell(ground.GetCellInfo(cell)))
-        cells.Add(cell);
-
-    if (cells.Count == 0)
-    {
-      cellPosition = default;
-      return false;
-    }
-
-    cellPosition = ground.CellToWorld(cells[_random.Next(cells.Count)]);
+    Spawn(prototype, ground).transform.position = freeCell.WorldPos;
     return true;
 
-    bool IsFreeCell(GroundInfo.CellInfo info)
-    {
-      return info is { IsWalkable: true } && !WorldHasAnyGrass(info.WorldPos);
-    }
+    bool CellCanSpawnGrass(Ground.Cell cell) =>
+      cell.IsWalkable && !cell.HasAnyGrass();
   }
+}
 
-  private static readonly Collider2D[] _overlaps = new Collider2D[10];
+public static partial class CellExtensions
+{
+  private static readonly Collider2D[] _grassOverlaps = new Collider2D[42];
 
-  private static bool WorldHasAnyGrass(Vector2 point)
+  public static bool HasAnyGrass(this Ground.Cell cell)
   {
-    int overlapsCount = Physics2D.OverlapPointNonAlloc(point, _overlaps);
+    int overlapsCount = Physics2D.OverlapPointNonAlloc(cell.WorldPos, _grassOverlaps);
 
     for (int i = 0; i < overlapsCount; i++)
-      if (_overlaps[i].HasComponent<Grass>())
+      if (_grassOverlaps[i].HasComponent<Grass>())
         return true;
 
     return false;
   }
-
-  public void Release() =>
-    Destroy(gameObject);
 }

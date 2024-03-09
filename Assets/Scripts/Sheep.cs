@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Extensions;
 using UnityEngine;
 using Random = System.Random;
 
@@ -8,19 +9,21 @@ public class Sheep : MonoBehaviour
   [SerializeField] private float _movementSpeedMin = 0.5f;
   [SerializeField] private float _movementSpeedMax = 3f;
 
-  private GroundInfo _ground;
+  private static readonly Collider2D[] _overlaps = new Collider2D[10];
+  private static readonly Random _random = new();
 
-  private readonly Stack<Vector3> _movementPath = new();
-
-  static Random _random = new Random();
+  private Ground _ground;
   private float _movementSpeed;
-  
+  private readonly Stack<Vector3> _movementPath = new();
+  private PathFinder<Ground.Cell> _pathFinder;
+
   private void OnEnable()
   {
-    _ground = _ground ? _ground : FindObjectOfType<GroundInfo>();
+    _ground = _ground ? _ground : FindObjectOfType<Ground>();
     if (!_ground)
       Destroy(gameObject);
 
+    _pathFinder = new PathFinder<Ground.Cell>(IsWalkableForThisSheep);
     _movementSpeed = Mathf.Lerp(_movementSpeedMin, _movementSpeedMax, (float)_random.NextDouble());
   }
 
@@ -34,117 +37,42 @@ public class Sheep : MonoBehaviour
   private void UpdatePath()
   {
     _movementPath.Clear();
+    Ground.Cell startCell = _ground.GetCell(transform.position);
+    foreach (Ground.Cell cell in _pathFinder.Find(startCell, CellHasAccessibleGrass))
+      _movementPath.Push(cell.WorldPos);
 
-    Vector3Int startCell = _ground.WorldToCell(transform.position);
-    PathCellData endData = null;
-
-    Queue<PathCellData> openCellsData = new();
-    openCellsData.Enqueue(new PathCellData { Cell = startCell });
-    List<Vector3Int> closedCells = new() { startCell };
-
-    while (openCellsData.Any())
-    {
-      PathCellData data = openCellsData.Dequeue();
-      Vector3 cellWorldPos = _ground.CellToWorld(data.Cell);
-      if (_ground.GetCellInfo(data.Cell) is { IsWalkable: true }
-          && WorldHasGrass(cellWorldPos)
-          && !WorldHasAnotherSheep(cellWorldPos))
-      {
-        endData = data;
-        break;
-      }
-
-      foreach (Vector3Int neighbour in GetNeighbours(data.Cell))
-      {
-        if (closedCells.FindIndex(neighbour.Equals) > -1) continue;
-
-        closedCells.Add(neighbour);
-        openCellsData.Enqueue(new PathCellData { Cell = neighbour, CameFrom = data });
-      }
-    }
-
-    if (endData != null)
-      _movementPath.Push(_ground.CellToWorld(endData.Cell));
-
-    PathCellData currentData = endData;
-    while (currentData?.CameFrom != null)
-    {
-      _movementPath.Push(_ground.CellToWorld(currentData.Cell));
-      currentData = currentData.CameFrom;
-    }
-
-    IEnumerable<Vector3Int> GetNeighbours(Vector3Int cell)
-    {
-      Vector3Int[] offsets =
-      {
-        new(+0, +1), // up
-        new(+1, +0), // right
-        new(+0, -1), // down
-        new(-1, +0), // left
-      };
-
-      foreach (Vector3Int offset in offsets)
-      {
-        Vector3Int neighbour = cell + offset;
-        if (_ground.GetCellInfo(neighbour).IsWalkable
-            && !WorldHasAnotherSheep(_ground.CellToWorld(neighbour)))
-          yield return neighbour;
-      }
-    }
+    if (_movementPath.Count > 1)
+      _movementPath.Pop();
   }
 
-  private static readonly Collider2D[] _overlaps = new Collider2D[10];
+  private bool IsWalkableForThisSheep(Ground.Cell cell) =>
+    cell.IsWalkable && !cell.HasAnotherSheep(this);
 
-  private static bool WorldHasGrass(Vector2 point)
-  {
-    int overlapsCount = Physics2D.OverlapPointNonAlloc(point, _overlaps);
-
-    for (int i = 0; i < overlapsCount; i++)
-      if (_overlaps[i].HasComponent<Grass>())
-        return true;
-
-    return false;
-  }
-
-  private bool WorldHasAnotherSheep(Vector2 point)
-  {
-    int overlapsCount = Physics2D.OverlapPointNonAlloc(point, _overlaps);
-
-    for (int i = 0; i < overlapsCount; i++)
-    {
-      Sheep sheep = _overlaps[i].GetComponent<Sheep>();
-      if (sheep && sheep != this) return true;
-    }
-
-    return false;
-  }
-
-  public class PathCellData
-  {
-    public PathCellData CameFrom;
-    public Vector3Int Cell;
-  }
+  private bool CellHasAccessibleGrass(Ground.Cell cell) =>
+    IsWalkableForThisSheep(cell) && cell.HasAnyGrass();
 
   private void ProcessMovement()
   {
     if (!_movementPath.Any()) return;
 
-    float speed = _movementSpeed;
+    Vector3 nextPathPoint = _movementPath.Peek();
+    UpdateDirection(nextPathPoint);
 
-    Vector3 targetPosition = _movementPath.Peek();
+    transform.position = Vector3.MoveTowards(transform.position, nextPathPoint, _movementSpeed * Time.deltaTime);
+    if (Vector3.Distance(transform.position, nextPathPoint) < 0.01f)
+      _movementPath.Pop();
+  }
 
+  private void UpdateDirection(Vector3 targetPoint)
+  {
     Vector3 scale = transform.localScale;
-    scale.x = (targetPosition - transform.position).x switch
+    scale.x = (targetPoint - transform.position).x switch
     {
       <= -0.1f => -1,
       >= 0.1f => 1,
       _ => scale.x
     };
     transform.localScale = scale;
-    
-    transform.position = Vector3.MoveTowards(transform.position, targetPosition, speed * Time.deltaTime);
-    if (Vector3.Distance(transform.position, targetPosition) < 0.01f)
-      _movementPath.Pop();
   }
 
   private void ProcessEating()
@@ -155,14 +83,35 @@ public class Sheep : MonoBehaviour
 
     for (int i = 0; i < overlapsCount; i++)
     {
-      Grass grass = _overlaps[i].GetComponent<Grass>();
-      if (!grass) continue;
+      if (!_overlaps[i].TryGetComponent(out Grass grass)) continue;
+
       Destroy(grass.gameObject);
+      break;
     }
   }
+}
 
-  public void Release()
+public static partial class CellExtensions
+{
+  private static readonly Collider2D[] _sheepOverlaps = new Collider2D[42];
+
+  public static bool HasAnotherSheep(this Ground.Cell cell, Sheep sheep)
   {
-    Destroy(gameObject);
+    int overlapsCount = Physics2D.OverlapPointNonAlloc(cell.WorldPos, _sheepOverlaps);
+
+    for (int i = 0; i < overlapsCount; i++)
+      if (_sheepOverlaps[i].TryGetComponent(out Sheep someSheep) && someSheep != sheep)
+        return true;
+    return false;
+  }
+
+  public static bool HasAnySheep(this Ground.Cell cell)
+  {
+    int overlapsCount = Physics2D.OverlapPointNonAlloc(cell.WorldPos, _sheepOverlaps);
+
+    for (int i = 0; i < overlapsCount; i++)
+      if (_sheepOverlaps[i].HasComponent<Sheep>())
+        return true;
+    return false;
   }
 }

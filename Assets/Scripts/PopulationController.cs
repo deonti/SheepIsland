@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using Extensions;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,29 +10,53 @@ public class PopulationController : MonoBehaviour
   [SerializeField] private Sheep _sheepPrototype;
   [SerializeField] private Grass _grassPrototype;
 
-  private GroundInfo _ground;
+  private Ground _ground;
 
-  private void Awake() => 
-    _ground = _ground ? _ground : FindObjectOfType<GroundInfo>();
+  private void Awake() =>
+    _ground = _ground ? _ground : FindObjectOfType<Ground>();
 
-  private void Start() => 
-    CountsChanged();
-
-  public void CountsChanged()
+  private void Start()
   {
-    Sheep[] sheepes = FindObjectsByType<Sheep>(FindObjectsSortMode.None);
-    for (int i = sheepes.Length - 1; i > _sheepCount.value - 1; i--)
-      sheepes[i].Release();
+    _grassCount.value = FindObjectsOfType<Grass>().Length;
+    _sheepCount.value = FindObjectsOfType<Sheep>().Length;
+  }
 
-    for (int i = sheepes.Length; i < _sheepCount.value; i++)
-      Instantiate(_sheepPrototype);
-
-    Grass[] grasses = FindObjectsByType<Grass>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+  public void UpdateGrassPopulation()
+  {
+    Grass[] grasses = FindObjectsOfType<Grass>(includeInactive: true)
       .Where(grass => grass.IsPrototype).ToArray();
-    for (int i = grasses.Length - 1; i > _grassCount.value - 1; i--)
-      grasses[i].Release();
+    for (int i = 0; i < grasses.Length - _grassCount.value; i++)
+      Destroy(grasses[i].gameObject);
 
-    for (int i = grasses.Length; i < _grassCount.value; i++)
-      Instantiate(_grassPrototype);
+    for (int i = 0; i < _grassCount.value - grasses.Length; i++)
+    {
+      Ground.Cell cellWithoutGrass = _ground.GetCells(CanPlaceGrass).Random();
+      if (cellWithoutGrass.IsValid)
+        Instantiate(_grassPrototype, cellWithoutGrass.WorldPos, Quaternion.identity);
+      else
+        Instantiate(_grassPrototype);
+    }
+
+    bool CanPlaceGrass(Ground.Cell cell) =>
+      cell.IsWalkable && !cell.HasAnyGrass();
+  }
+
+  public void UpdateSheepPopulation()
+  {
+    Sheep[] sheepes = FindObjectsOfType<Sheep>();
+    for (int i = 0; i < sheepes.Length - _sheepCount.value; i++)
+      Destroy(sheepes[i].gameObject);
+
+    for (int i = 0; i < _sheepCount.value - sheepes.Length; i++)
+    {
+      Ground.Cell cellWithoutSheep = _ground.GetCells(CanPlaceSheep).Random();
+      if (cellWithoutSheep.IsValid)
+        Instantiate(_sheepPrototype, cellWithoutSheep.WorldPos, Quaternion.identity);
+      else
+        Instantiate(_sheepPrototype);
+    }
+
+    bool CanPlaceSheep(Ground.Cell cell) =>
+      cell.IsWalkable && !cell.HasAnySheep();
   }
 }
